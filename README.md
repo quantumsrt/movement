@@ -38,9 +38,10 @@ already started). The rig is then ours to pose.
   **turn** toward the direction of travel, and a lean *into* that direction
   (forward when moving forward, back when reversing, left/right when strafing,
   diagonal blends in between) — all scaled by speed.
-- **Reversing** — when mostly walking backward, the sideways sway/turn is
-  **mirrored**, so a back+left walk sways like a forward+right one (and
-  back+right like forward+left).
+- **Reversing** — when mostly walking backward, the sideways sway/turn (the
+  limb and torso yaw) is **mirrored**, so a back+left walk sways like a
+  forward+right one (and back+right like forward+left). The torso *lean* is not
+  mirrored — it always leans into the true direction of travel.
 - **Idle** — a subtle breathing bob lifts the torso, arms and head up and down,
   while the legs stay planted on the floor.
 - **In air** (jump / freefall) — arms sweep up, legs part slightly.

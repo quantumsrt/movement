@@ -221,13 +221,15 @@ function ProceduralAnimator:update(dt: number)
 			-- Two vertical dips per stride cycle.
 			targetBob = math.cos(self.phase * 2) * CONFIG.BobAmplitude * speedFactor
 
-			-- Turn the torso toward the way the character is moving.
+			-- Turn the torso toward the way the character is moving. This uses
+			-- the mirrored sway so reversing diagonally turns the opposite way.
 			targetYaw = -steerLateral * CONFIG.TorsoSteerYaw
-			-- Lean into the direction of travel. Negative signs tilt the *top*
-			-- of the torso toward the movement (Roblox's +X rotation pitches
-			-- backward), and the roll mirrors with the sway when reversing.
+			-- Lean into the *actual* direction of travel (never mirrored), so the
+			-- body leans back-left when reversing left, not forward-right. Negative
+			-- signs tilt the top of the torso toward the movement (Roblox's +X
+			-- rotation pitches backward).
 			targetPitch = -math.clamp(-localVelocity.Z / CONFIG.ReferenceSpeed, -1, 1) * CONFIG.MaxLean
-			targetRoll = -steerLateral * CONFIG.MaxLean
+			targetRoll = -math.clamp(localVelocity.X / CONFIG.ReferenceSpeed, -1, 1) * CONFIG.MaxLean
 		else
 			-- Gentle idle breathing.
 			targetBob = math.sin(os.clock() * CONFIG.IdleSpeed) * CONFIG.IdleBobAmplitude
