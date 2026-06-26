@@ -1,0 +1,23 @@
+{
+	"name": "Motor6DMovement",
+	"tree": {
+		"$className": "DataModel",
+
+		"ReplicatedStorage": {
+			"$className": "ReplicatedStorage",
+			"Motor6DMovement": {
+				"$path": "src/shared"
+			}
+		},
+
+		"StarterPlayer": {
+			"$className": "StarterPlayer",
+			"StarterCharacterScripts": {
+				"$className": "StarterCharacterScripts",
+				"MovementController": {
+					"$path": "src/client/MovementController.client.lua"
+				}
+			}
+		}
+	}
+}
