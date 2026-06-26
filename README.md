@@ -26,18 +26,18 @@ already started). The rig is then ours to pose.
 
 ### What it animates
 
-- **Walk / run** — arms and legs swing together as pendulums in the vertical
-  plane that contains the **direction of travel**, so the whole body steps the
-  way you're actually moving (forward, back, sideways, or any diagonal). Arms
-  swing opposite the same-side leg; legs lead slightly toward the travel
-  direction for a natural stride. Sideways steps pivot the legs about the body's
-  centerline (not the hip) so they swing under the body instead of splaying out.
-  Amplitude **and** cadence scale with the character's actual horizontal speed,
-  so walking and sprinting differ automatically.
-- **Torso** — a vertical bob synced to the stride (two dips per cycle) plus a
-  directional lean: the torso tilts *into* the direction of travel — forward
-  when moving forward, back when reversing, left/right when strafing, and
-  diagonal blends in between — scaled by speed.
+- **Walk / run** — every limb keeps the **same** fore/aft swing (the gait),
+  arms opposite the same-side leg. To move in a direction, the hips and
+  shoulders **yaw** (turn) so the limbs point the way the character is
+  travelling — the legs themselves never change their swing or position, the
+  joints just rotate. Steering comes from the strafe component only, so moving
+  forward turns nothing, strafing turns fully, and moving backward doesn't spin
+  the legs around. Amplitude **and** cadence scale with the character's actual
+  horizontal speed, so walking and sprinting differ automatically.
+- **Torso** — a vertical bob synced to the stride (two dips per cycle), a
+  **turn** toward the direction of travel, and a lean *into* that direction
+  (forward when moving forward, back when reversing, left/right when strafing,
+  diagonal blends in between) — all scaled by speed.
 - **Idle** — limbs settle to rest with a subtle breathing bob.
 - **In air** (jump / freefall) — arms sweep up, legs part slightly.
 
@@ -78,8 +78,9 @@ Open `ProceduralAnimator.lua` and adjust the `CONFIG` table:
 | --- | --- |
 | `ReferenceSpeed` | WalkSpeed that maps to a full-amplitude stride. |
 | `Cadence` | How fast the stride cycles relative to speed. |
-| `MaxSwing` | Peak arm/leg swing angle. |
-| `LegTravelBias` | How far steps lead toward the travel direction. |
+| `MaxSwing` | Peak arm/leg fore/aft swing angle (the gait). |
+| `LimbSteerYaw` | How far hips/shoulders turn the limbs toward the travel direction. |
+| `TorsoSteerYaw` | How far the torso turns toward the travel direction. |
 | `BobAmplitude` / `MaxLean` | Torso bob height and max directional lean angle. |
 | `IdleBobAmplitude` / `IdleSpeed` | Idle breathing depth and rate. |
 | `AirArmAngle` / `AirLegAngle` | In-air pose. |

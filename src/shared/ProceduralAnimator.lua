@@ -36,10 +36,13 @@ local CONFIG = {
 	-- Allow a little overswing when sprinting above the reference speed.
 	MaxSpeedFactor = 1.4,
 
-	-- How far the legs bias their swing toward the direction of travel, as a
-	-- fraction of MaxSwing. A small lead so steps reach a little further the
-	-- way the character is moving without leaving the feet ahead of the body.
-	LegTravelBias = 0.18,
+	-- Steering: how far the hips/shoulders yaw to turn the limbs toward the
+	-- direction of travel at full sideways speed. The limbs keep their normal
+	-- fore/aft gait; this yaw just points them the way the character is moving.
+	LimbSteerYaw = math.rad(50),
+	-- How far the torso itself turns toward the direction of travel (subtler
+	-- than the limbs, so the upper body leads rather than snaps around).
+	TorsoSteerYaw = math.rad(14),
 
 	-- Vertical bob of the torso, synced to the stride (two dips per cycle).
 	BobAmplitude = 0.18,
@@ -121,6 +124,7 @@ function ProceduralAnimator.new(character: Model)
 		rootBob = 0,
 		rootPitch = 0,
 		rootRoll = 0,
+		rootYaw = 0,
 	}, ProceduralAnimator)
 
 	-- Cache every animated limb together with its rest pose.
@@ -135,7 +139,7 @@ function ProceduralAnimator.new(character: Model)
 				basePos = basePos,
 				baseRot = baseRot,
 				baseC0 = motor.C0, -- full rest C0 (position + rotation)
-				current = 0, -- eased swing angle about the travel axis (radians)
+				current = CFrame.identity, -- eased local rotation offset (yaw + swing)
 			})
 		else
 			warn(`ProceduralAnimator: missing Motor6D "{def.name}"`)
@@ -181,71 +185,55 @@ function ProceduralAnimator:update(dt: number)
 		self.phase += dt * horizontalSpeed * CONFIG.Cadence
 	end
 
-	-- Build the swing in the *vertical plane that contains the travel
-	-- direction*, so arms and legs both swing the way the character is moving
-	-- (forward, back, sideways or any diagonal). The swing rotates about a
-	-- horizontal axis perpendicular to that direction, measured in the torso's
-	-- local frame.
+	-- Frame-rate independent smoothing factor for this frame.
+	local alpha = 1 - math.exp(-CONFIG.Responsiveness * dt)
+
+	-- Steering. The body turns toward the direction of travel, driven by the
+	-- lateral (strafe) component only: moving straight forward turns nothing,
+	-- strafing turns fully, and moving backward does NOT spin the legs around.
+	-- The limbs keep their normal gait; this yaw just points them the right way.
 	local localVelocity = self.rootPart.CFrame:VectorToObjectSpace(velocity)
-	local travelAxis: Vector3? = nil
+	local steerYaw = 0
 	if moving and horizontalSpeed > 0.05 then
-		local dir = Vector3.new(localVelocity.X, 0, localVelocity.Z).Unit
-		-- `dir x up` is the horizontal axis the limbs pendulum about. Rotating a
-		-- downward-hanging limb about it by a positive angle swings the limb
-		-- toward `dir` (the way we're travelling).
-		travelAxis = dir:Cross(Vector3.yAxis)
+		local lateral = math.clamp(localVelocity.X / CONFIG.ReferenceSpeed, -1, 1)
+		steerYaw = -lateral * CONFIG.LimbSteerYaw
 	end
 
-	-- Drive each limb toward its target swing about that shared axis.
+	-- Drive each limb. The fore/aft swing (the gait) is identical regardless of
+	-- travel direction; only the hip/shoulder yaw changes, turning the whole
+	-- limb to face the way the character is moving.
 	for _, limb in self.limbs do
+		local targetRot: CFrame
 		if inAir then
-			-- No travel direction in the air: arms raise in front, legs part,
-			-- both as a simple forward/back rotation.
-			local target = (limb.role == "arm") and CONFIG.AirArmAngle
+			-- Arms raise in front, legs part; a simple fore/aft rotation.
+			local angle = (limb.role == "arm") and CONFIG.AirArmAngle
 				or (limb.side == "right" and 1 or -1) * CONFIG.AirLegAngle
-			limb.current = ease(limb.current, target, dt)
-			limb.motor.C0 = CFrame.new(limb.basePos)
-				* CFrame.Angles(limb.current, 0, 0)
-				* limb.baseRot
-		elseif travelAxis then
+			targetRot = CFrame.Angles(angle, 0, 0)
+		elseif moving then
 			local sideSign = (limb.side == "right") and 1 or -1
-			local swing = math.sin(self.phase) * sideSign
-			local target
-			if limb.role == "leg" then
-				-- Slight lead toward the travel direction for a natural stride.
-				target = (swing + CONFIG.LegTravelBias) * swingAmplitude
-			else
-				-- Arms swing opposite to the leg on the same side.
-				target = -swing * swingAmplitude
-			end
-			limb.current = ease(limb.current, target, dt)
-
-			-- Pivot legs about the body's centerline (x = 0) so a sideways step
-			-- swings the leg under the body instead of splaying from the hip.
-			-- Arms pivot at the shoulder, which already looks natural.
-			local pivot = (limb.role == "leg")
-				and Vector3.new(0, limb.basePos.Y, limb.basePos.Z)
-				or limb.basePos
-
-			local rotation = CFrame.fromAxisAngle(travelAxis, limb.current)
-			limb.motor.C0 = CFrame.new(pivot)
-				* rotation
-				* CFrame.new(-pivot)
-				* limb.baseC0
+			-- Arms swing opposite to the leg on the same side.
+			local roleSign = (limb.role == "leg") and 1 or -1
+			local swing = math.sin(self.phase) * sideSign * roleSign * swingAmplitude
+			-- Hip/shoulder yaw first, then the constant fore/aft swing: the
+			-- limb's own rotation never changes, the yaw steers it.
+			targetRot = CFrame.Angles(0, steerYaw, 0) * CFrame.Angles(swing, 0, 0)
 		else
 			-- Idle: settle back to the rest pose.
-			limb.current = ease(limb.current, 0, dt)
-			limb.motor.C0 = CFrame.new(limb.basePos)
-				* CFrame.Angles(limb.current, 0, 0)
-				* limb.baseRot
+			targetRot = CFrame.identity
 		end
+
+		-- Pure rotation about the joint (no translation, so legs never move
+		-- position), eased by lerping the local offset CFrame.
+		limb.current = limb.current:Lerp(targetRot, alpha)
+		limb.motor.C0 = CFrame.new(limb.basePos) * limb.current * limb.baseRot
 	end
 
-	-- Torso bob + directional lean.
+	-- Torso bob, turn-toward-movement, and lean.
 	if self.rootMotor and self.rootBaseC0 then
 		local targetBob: number
 		local targetPitch = 0 -- forward (+) / back (-) lean
 		local targetRoll = 0 -- right (+) / left (-) lean
+		local targetYaw = 0 -- turn toward the direction of travel
 
 		if inAir then
 			targetBob = 0
@@ -253,14 +241,16 @@ function ProceduralAnimator:update(dt: number)
 			-- Two vertical dips per stride cycle.
 			targetBob = math.cos(self.phase * 2) * CONFIG.BobAmplitude * speedFactor
 
-			-- Lean into the direction of travel (reusing the local-space
-			-- velocity computed above). Moving forward leans forward, strafing
-			-- right leans right, and any blend leans diagonally.
+			-- Reuse the local-space velocity computed above.
 			local ref = CONFIG.ReferenceSpeed
-			-- Negative signs tilt the *top* of the torso toward the movement
-			-- direction (Roblox's +X rotation pitches backward, +Z rolls left).
+			local lateral = math.clamp(localVelocity.X / ref, -1, 1)
+			-- Turn the torso toward the way the character is moving.
+			targetYaw = -lateral * CONFIG.TorsoSteerYaw
+			-- Lean into the direction of travel. Negative signs tilt the *top*
+			-- of the torso toward the movement (Roblox's +X rotation pitches
+			-- backward, +Z rolls left).
 			targetPitch = -math.clamp(-localVelocity.Z / ref, -1, 1) * CONFIG.MaxLean
-			targetRoll = -math.clamp(localVelocity.X / ref, -1, 1) * CONFIG.MaxLean
+			targetRoll = -lateral * CONFIG.MaxLean
 		else
 			-- Gentle idle breathing.
 			targetBob = math.sin(os.clock() * CONFIG.IdleSpeed) * CONFIG.IdleBobAmplitude
@@ -269,9 +259,10 @@ function ProceduralAnimator:update(dt: number)
 		self.rootBob = ease(self.rootBob, targetBob, dt)
 		self.rootPitch = ease(self.rootPitch, targetPitch, dt)
 		self.rootRoll = ease(self.rootRoll, targetRoll, dt)
+		self.rootYaw = ease(self.rootYaw, targetYaw, dt)
 
 		self.rootMotor.C0 = CFrame.new(0, self.rootBob, 0)
-			* CFrame.Angles(self.rootPitch, 0, self.rootRoll)
+			* CFrame.Angles(self.rootPitch, self.rootYaw, self.rootRoll)
 			* self.rootBaseC0
 	end
 end
@@ -279,13 +270,14 @@ end
 -- Restore every joint to its rest pose (e.g. before the character dies).
 function ProceduralAnimator:reset()
 	for _, limb in self.limbs do
-		limb.current = 0
+		limb.current = CFrame.identity
 		limb.motor.C0 = limb.baseC0
 	end
 	if self.rootMotor and self.rootBaseC0 then
 		self.rootBob = 0
 		self.rootPitch = 0
 		self.rootRoll = 0
+		self.rootYaw = 0
 		self.rootMotor.C0 = self.rootBaseC0
 	end
 end
