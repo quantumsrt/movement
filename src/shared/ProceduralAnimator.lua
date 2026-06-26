@@ -227,9 +227,10 @@ function ProceduralAnimator:update(dt: number)
 			-- Lean into the *actual* direction of travel (never mirrored), so the
 			-- body leans back-and-left when reversing left, not forward-right.
 			-- Pitch leans back when reversing; roll leans toward the strafe side
-			-- (moving left leans left, moving right leans right).
+			-- (moving left leans left, moving right leans right). The negative
+			-- roll sign matches Roblox's roots: -X velocity must lean left.
 			targetPitch = -math.clamp(-localVelocity.Z / CONFIG.ReferenceSpeed, -1, 1) * CONFIG.MaxLean
-			targetRoll = math.clamp(localVelocity.X / CONFIG.ReferenceSpeed, -1, 1) * CONFIG.MaxLean
+			targetRoll = -math.clamp(localVelocity.X / CONFIG.ReferenceSpeed, -1, 1) * CONFIG.MaxLean
 		else
 			-- Gentle idle breathing.
 			targetBob = math.sin(os.clock() * CONFIG.IdleSpeed) * CONFIG.IdleBobAmplitude
