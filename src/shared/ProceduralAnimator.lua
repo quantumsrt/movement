@@ -114,7 +114,8 @@ function ProceduralAnimator.new(character: Model)
 		rootMotor = nil :: Motor6D?,
 		rootBaseC0 = nil :: CFrame?,
 		rootBob = 0,
-		rootLean = 0,
+		rootPitch = 0,
+		rootRoll = 0,
 	}, ProceduralAnimator)
 
 	-- Cache every animated limb together with its rest pose.
@@ -179,9 +180,9 @@ function ProceduralAnimator:update(dt: number)
 		local target: number
 
 		if inAir then
-			-- Arms swing up, legs part slightly.
+			-- Arms swing up in FRONT of the body, legs part slightly.
 			if limb.role == "arm" then
-				target = -CONFIG.AirArmAngle
+				target = CONFIG.AirArmAngle
 			else
 				target = (limb.side == "right" and 1 or -1) * CONFIG.AirLegAngle
 			end
@@ -203,29 +204,40 @@ function ProceduralAnimator:update(dt: number)
 			* limb.baseRot
 	end
 
-	-- Torso bob + forward lean.
+	-- Torso bob + directional lean.
 	if self.rootMotor and self.rootBaseC0 then
 		local targetBob: number
-		local targetLean: number
+		local targetPitch = 0 -- forward (+) / back (-) lean
+		local targetRoll = 0 -- right (+) / left (-) lean
 
 		if inAir then
 			targetBob = 0
-			targetLean = 0
 		elseif moving then
 			-- Two vertical dips per stride cycle.
 			targetBob = math.cos(self.phase * 2) * CONFIG.BobAmplitude * speedFactor
-			targetLean = CONFIG.MaxLean * speedFactor
+
+			-- Lean into the direction of travel, measured relative to the way
+			-- the character is facing. Moving forward leans forward, strafing
+			-- right leans right, and any blend leans diagonally.
+			local localVelocity = self.rootPart.CFrame:VectorToObjectSpace(velocity)
+			local forward = -localVelocity.Z -- in Roblox, -Z is the look direction
+			local strafe = localVelocity.X -- +X is the character's right
+			local ref = CONFIG.ReferenceSpeed
+			-- Negative signs tilt the *top* of the torso toward the movement
+			-- direction (Roblox's +X rotation pitches backward, +Z rolls left).
+			targetPitch = -math.clamp(forward / ref, -1, 1) * CONFIG.MaxLean
+			targetRoll = -math.clamp(strafe / ref, -1, 1) * CONFIG.MaxLean
 		else
 			-- Gentle idle breathing.
 			targetBob = math.sin(os.clock() * CONFIG.IdleSpeed) * CONFIG.IdleBobAmplitude
-			targetLean = 0
 		end
 
 		self.rootBob = ease(self.rootBob, targetBob, dt)
-		self.rootLean = ease(self.rootLean, targetLean, dt)
+		self.rootPitch = ease(self.rootPitch, targetPitch, dt)
+		self.rootRoll = ease(self.rootRoll, targetRoll, dt)
 
 		self.rootMotor.C0 = CFrame.new(0, self.rootBob, 0)
-			* CFrame.Angles(self.rootLean, 0, 0)
+			* CFrame.Angles(self.rootPitch, 0, self.rootRoll)
 			* self.rootBaseC0
 	end
 end
@@ -238,7 +250,8 @@ function ProceduralAnimator:reset()
 	end
 	if self.rootMotor and self.rootBaseC0 then
 		self.rootBob = 0
-		self.rootLean = 0
+		self.rootPitch = 0
+		self.rootRoll = 0
 		self.rootMotor.C0 = self.rootBaseC0
 	end
 end

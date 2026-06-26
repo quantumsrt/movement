@@ -31,7 +31,9 @@ already started). The rig is then ours to pose.
   character's actual horizontal speed, so walking and sprinting differ
   automatically.
 - **Torso** — a vertical bob synced to the stride (two dips per cycle) plus a
-  forward lean that grows with speed.
+  directional lean: the torso tilts *into* the direction of travel — forward
+  when moving forward, back when reversing, left/right when strafing, and
+  diagonal blends in between — scaled by speed.
 - **Idle** — limbs settle to rest with a subtle breathing bob.
 - **In air** (jump / freefall) — arms sweep up, legs part slightly.
 
@@ -73,7 +75,7 @@ Open `ProceduralAnimator.lua` and adjust the `CONFIG` table:
 | `ReferenceSpeed` | WalkSpeed that maps to a full-amplitude stride. |
 | `Cadence` | How fast the stride cycles relative to speed. |
 | `MaxSwing` | Peak arm/leg swing angle. |
-| `BobAmplitude` / `MaxLean` | Torso bob height and running lean. |
+| `BobAmplitude` / `MaxLean` | Torso bob height and max directional lean angle. |
 | `IdleBobAmplitude` / `IdleSpeed` | Idle breathing depth and rate. |
 | `AirArmAngle` / `AirLegAngle` | In-air pose. |
 | `Responsiveness` | Easing snappiness between poses. |
