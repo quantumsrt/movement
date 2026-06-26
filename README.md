@@ -38,7 +38,11 @@ already started). The rig is then ours to pose.
   **turn** toward the direction of travel, and a lean *into* that direction
   (forward when moving forward, back when reversing, left/right when strafing,
   diagonal blends in between) — all scaled by speed.
-- **Idle** — limbs settle to rest with a subtle breathing bob.
+- **Reversing** — when mostly walking backward, the sideways sway/turn is
+  **mirrored**, so a back+left walk sways like a forward+right one (and
+  back+right like forward+left).
+- **Idle** — a subtle breathing bob lifts the torso, arms and head up and down,
+  while the legs stay planted on the floor.
 - **In air** (jump / freefall) — arms sweep up, legs part slightly.
 
 All poses are eased toward (frame-rate-independent smoothing), so transitions
@@ -46,11 +50,11 @@ between states never snap.
 
 ### Rig support
 
-Works with both **R6** and **R15**. The four major limbs are swung about the
-torso's lateral (X) axis — the sagittal swing axis for both rig types — so a
-single code path covers both. The rig is detected from `Humanoid.RigType` and
-the correct joint names are looked up from a small table in
-`ProceduralAnimator.lua`.
+Works with both **R6** and **R15**. The four major limbs (two arms, two legs)
+are driven the same way on either rig — a fore/aft gait swing plus a steering
+yaw — so a single code path covers both. The rig is detected from
+`Humanoid.RigType` and the correct joint names are looked up from a small table
+in `ProceduralAnimator.lua`.
 
 ## Installing / running
 

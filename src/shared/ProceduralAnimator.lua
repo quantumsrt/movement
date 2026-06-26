@@ -43,6 +43,10 @@ local CONFIG = {
 	-- How far the torso itself turns toward the direction of travel (subtler
 	-- than the limbs, so the upper body leads rather than snaps around).
 	TorsoSteerYaw = math.rad(14),
+	-- When the backward share of travel exceeds this fraction, the sideways
+	-- sway/turn is mirrored, so reversing diagonally sways like the opposite
+	-- forward diagonal (back+left reads like forward+right, and vice versa).
+	BackwardInvertThreshold = 0.3,
 
 	-- Vertical bob of the torso, synced to the stride (two dips per cycle).
 	BobAmplitude = 0.18,
@@ -188,16 +192,63 @@ function ProceduralAnimator:update(dt: number)
 	-- Frame-rate independent smoothing factor for this frame.
 	local alpha = 1 - math.exp(-CONFIG.Responsiveness * dt)
 
-	-- Steering. The body turns toward the direction of travel, driven by the
-	-- lateral (strafe) component only: moving straight forward turns nothing,
-	-- strafing turns fully, and moving backward does NOT spin the legs around.
-	-- The limbs keep their normal gait; this yaw just points them the right way.
+	-- Steering. The body turns/sways toward the direction of travel, driven by
+	-- the lateral (strafe) component: forward turns nothing, strafing turns
+	-- fully, and backward does NOT spin the legs around. When mostly reversing,
+	-- the sideways sway is mirrored so a back+left walk sways like forward+right.
 	local localVelocity = self.rootPart.CFrame:VectorToObjectSpace(velocity)
-	local steerYaw = 0
+	local steerLateral = 0
 	if moving and horizontalSpeed > 0.05 then
 		local lateral = math.clamp(localVelocity.X / CONFIG.ReferenceSpeed, -1, 1)
-		steerYaw = -lateral * CONFIG.LimbSteerYaw
+		if localVelocity.Z / horizontalSpeed > CONFIG.BackwardInvertThreshold then
+			lateral = -lateral -- moving backwards: mirror the sideways sway/turn
+		end
+		steerLateral = lateral
 	end
+	local steerYaw = -steerLateral * CONFIG.LimbSteerYaw
+
+	-- Torso bob, turn-toward-movement, and lean. Computed before the limbs so
+	-- the legs can cancel the breathing bob and stay planted (see below).
+	if self.rootMotor and self.rootBaseC0 then
+		local targetBob: number
+		local targetPitch = 0 -- forward (+) / back (-) lean
+		local targetRoll = 0 -- right (+) / left (-) lean
+		local targetYaw = 0 -- turn toward the direction of travel
+
+		if inAir then
+			targetBob = 0
+		elseif moving then
+			-- Two vertical dips per stride cycle.
+			targetBob = math.cos(self.phase * 2) * CONFIG.BobAmplitude * speedFactor
+
+			-- Turn the torso toward the way the character is moving.
+			targetYaw = -steerLateral * CONFIG.TorsoSteerYaw
+			-- Lean into the direction of travel. Negative signs tilt the *top*
+			-- of the torso toward the movement (Roblox's +X rotation pitches
+			-- backward), and the roll mirrors with the sway when reversing.
+			targetPitch = -math.clamp(-localVelocity.Z / CONFIG.ReferenceSpeed, -1, 1) * CONFIG.MaxLean
+			targetRoll = -steerLateral * CONFIG.MaxLean
+		else
+			-- Gentle idle breathing.
+			targetBob = math.sin(os.clock() * CONFIG.IdleSpeed) * CONFIG.IdleBobAmplitude
+		end
+
+		self.rootBob = ease(self.rootBob, targetBob, dt)
+		self.rootPitch = ease(self.rootPitch, targetPitch, dt)
+		self.rootRoll = ease(self.rootRoll, targetRoll, dt)
+		self.rootYaw = ease(self.rootYaw, targetYaw, dt)
+
+		self.rootMotor.C0 = CFrame.new(0, self.rootBob, 0)
+			* CFrame.Angles(self.rootPitch, self.rootYaw, self.rootRoll)
+			* self.rootBaseC0
+	end
+
+	-- The breathing/bob above moves the whole torso, and the arms ride along
+	-- with it, so they rise and fall too. The legs are children of the torso as
+	-- well, so to keep them planted while idle we cancel that vertical bob on
+	-- the hips only.
+	local idle = not inAir and not moving
+	local legBobCancel = idle and Vector3.new(0, -self.rootBob, 0) or Vector3.zero
 
 	-- Drive each limb. The fore/aft swing (the gait) is identical regardless of
 	-- travel direction; only the hip/shoulder yaw changes, turning the whole
@@ -222,48 +273,12 @@ function ProceduralAnimator:update(dt: number)
 			targetRot = CFrame.identity
 		end
 
-		-- Pure rotation about the joint (no translation, so legs never move
-		-- position), eased by lerping the local offset CFrame.
 		limb.current = limb.current:Lerp(targetRot, alpha)
-		limb.motor.C0 = CFrame.new(limb.basePos) * limb.current * limb.baseRot
-	end
 
-	-- Torso bob, turn-toward-movement, and lean.
-	if self.rootMotor and self.rootBaseC0 then
-		local targetBob: number
-		local targetPitch = 0 -- forward (+) / back (-) lean
-		local targetRoll = 0 -- right (+) / left (-) lean
-		local targetYaw = 0 -- turn toward the direction of travel
-
-		if inAir then
-			targetBob = 0
-		elseif moving then
-			-- Two vertical dips per stride cycle.
-			targetBob = math.cos(self.phase * 2) * CONFIG.BobAmplitude * speedFactor
-
-			-- Reuse the local-space velocity computed above.
-			local ref = CONFIG.ReferenceSpeed
-			local lateral = math.clamp(localVelocity.X / ref, -1, 1)
-			-- Turn the torso toward the way the character is moving.
-			targetYaw = -lateral * CONFIG.TorsoSteerYaw
-			-- Lean into the direction of travel. Negative signs tilt the *top*
-			-- of the torso toward the movement (Roblox's +X rotation pitches
-			-- backward, +Z rolls left).
-			targetPitch = -math.clamp(-localVelocity.Z / ref, -1, 1) * CONFIG.MaxLean
-			targetRoll = -lateral * CONFIG.MaxLean
-		else
-			-- Gentle idle breathing.
-			targetBob = math.sin(os.clock() * CONFIG.IdleSpeed) * CONFIG.IdleBobAmplitude
-		end
-
-		self.rootBob = ease(self.rootBob, targetBob, dt)
-		self.rootPitch = ease(self.rootPitch, targetPitch, dt)
-		self.rootRoll = ease(self.rootRoll, targetRoll, dt)
-		self.rootYaw = ease(self.rootYaw, targetYaw, dt)
-
-		self.rootMotor.C0 = CFrame.new(0, self.rootBob, 0)
-			* CFrame.Angles(self.rootPitch, self.rootYaw, self.rootRoll)
-			* self.rootBaseC0
+		-- Legs keep planted during idle breathing; everything else is pure
+		-- rotation about the joint (no positional change).
+		local pivot = (limb.role == "leg") and (limb.basePos + legBobCancel) or limb.basePos
+		limb.motor.C0 = CFrame.new(pivot) * limb.current * limb.baseRot
 	end
 end
 
