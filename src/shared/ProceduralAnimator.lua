@@ -225,11 +225,11 @@ function ProceduralAnimator:update(dt: number)
 			-- the mirrored sway so reversing diagonally turns the opposite way.
 			targetYaw = -steerLateral * CONFIG.TorsoSteerYaw
 			-- Lean into the *actual* direction of travel (never mirrored), so the
-			-- body leans back-left when reversing left, not forward-right. Negative
-			-- signs tilt the top of the torso toward the movement (Roblox's +X
-			-- rotation pitches backward).
+			-- body leans back-and-left when reversing left, not forward-right.
+			-- Pitch leans back when reversing; roll leans toward the strafe side
+			-- (moving left leans left, moving right leans right).
 			targetPitch = -math.clamp(-localVelocity.Z / CONFIG.ReferenceSpeed, -1, 1) * CONFIG.MaxLean
-			targetRoll = -math.clamp(localVelocity.X / CONFIG.ReferenceSpeed, -1, 1) * CONFIG.MaxLean
+			targetRoll = math.clamp(localVelocity.X / CONFIG.ReferenceSpeed, -1, 1) * CONFIG.MaxLean
 		else
 			-- Gentle idle breathing.
 			targetBob = math.sin(os.clock() * CONFIG.IdleSpeed) * CONFIG.IdleBobAmplitude
