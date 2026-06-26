@@ -37,13 +37,9 @@ local CONFIG = {
 	MaxSpeedFactor = 1.4,
 
 	-- How far the legs bias their swing toward the direction of travel, as a
-	-- fraction of MaxSwing. Makes steps reach further forward when moving
-	-- forward (and back/sideways when reversing/strafing) instead of swinging
-	-- symmetrically around the rest pose.
-	LegTravelBias = 0.45,
-	-- Studs the foot lifts off the floor during its forward-swing half, so the
-	-- leg picks up and plants down like a real step. Kept subtle.
-	FootLift = 0.3,
+	-- fraction of MaxSwing. A small lead so steps reach a little further the
+	-- way the character is moving without leaving the feet ahead of the body.
+	LegTravelBias = 0.18,
 
 	-- Vertical bob of the torso, synced to the stride (two dips per cycle).
 	BobAmplitude = 0.18,
@@ -138,10 +134,8 @@ function ProceduralAnimator.new(character: Model)
 				side = def.side,
 				basePos = basePos,
 				baseRot = baseRot,
-				current = 0, -- eased swing angle, used for arms (radians)
-				currentPitch = 0, -- eased forward/back swing, used for legs
-				currentRoll = 0, -- eased sideways swing, used for legs
-				currentLift = 0, -- eased vertical foot lift, used for legs (studs)
+				baseC0 = motor.C0, -- full rest C0 (position + rotation)
+				current = 0, -- eased swing angle about the travel axis (radians)
 			})
 		else
 			warn(`ProceduralAnimator: missing Motor6D "{def.name}"`)
@@ -187,63 +181,62 @@ function ProceduralAnimator:update(dt: number)
 		self.phase += dt * horizontalSpeed * CONFIG.Cadence
 	end
 
-	-- Direction of travel relative to the way the character faces, as unit
-	-- fractions: +forward is the look direction, +strafe is the character's
-	-- right. Legs bias their stride along this so movement in any direction
-	-- (forward, back, sideways, diagonal) steps the right way.
+	-- Build the swing in the *vertical plane that contains the travel
+	-- direction*, so arms and legs both swing the way the character is moving
+	-- (forward, back, sideways or any diagonal). The swing rotates about a
+	-- horizontal axis perpendicular to that direction, measured in the torso's
+	-- local frame.
 	local localVelocity = self.rootPart.CFrame:VectorToObjectSpace(velocity)
-	local forwardFrac, strafeFrac = 0, 0
-	if horizontalSpeed > 0.05 then
-		forwardFrac = -localVelocity.Z / horizontalSpeed -- -Z is the look direction
-		strafeFrac = localVelocity.X / horizontalSpeed
+	local travelAxis: Vector3? = nil
+	if moving and horizontalSpeed > 0.05 then
+		local dir = Vector3.new(localVelocity.X, 0, localVelocity.Z).Unit
+		-- `dir x up` is the horizontal axis the limbs pendulum about. Rotating a
+		-- downward-hanging limb about it by a positive angle swings the limb
+		-- toward `dir` (the way we're travelling).
+		travelAxis = dir:Cross(Vector3.yAxis)
 	end
 
-	-- Drive each limb. Arms use a single forward/back swing; legs step along the
-	-- travel direction, biased toward it, and lift the foot during their swing.
+	-- Drive each limb toward its target swing about that shared axis.
 	for _, limb in self.limbs do
-		if limb.role == "arm" then
-			local target = 0
-			if inAir then
-				target = CONFIG.AirArmAngle -- raised in front of the body
-			elseif moving then
-				-- Arms swing opposite to the leg on the same side.
-				local sideSign = (limb.side == "right") and 1 or -1
-				target = math.sin(self.phase) * swingAmplitude * sideSign * -1
-			end
-
+		if inAir then
+			-- No travel direction in the air: arms raise in front, legs part,
+			-- both as a simple forward/back rotation.
+			local target = (limb.role == "arm") and CONFIG.AirArmAngle
+				or (limb.side == "right" and 1 or -1) * CONFIG.AirLegAngle
 			limb.current = ease(limb.current, target, dt)
 			limb.motor.C0 = CFrame.new(limb.basePos)
 				* CFrame.Angles(limb.current, 0, 0)
 				* limb.baseRot
-		else
-			-- Leg.
-			local pitch, roll, lift = 0, 0, 0
-
-			if inAir then
-				pitch = (limb.side == "right" and 1 or -1) * CONFIG.AirLegAngle
-			elseif moving then
-				local sideSign = (limb.side == "right") and 1 or -1
-				-- Alternating reach plus a constant bias toward the travel
-				-- direction, both projected onto forward/sideways axes.
-				local swing = math.sin(self.phase) * sideSign
-				local reach = (swing + CONFIG.LegTravelBias) * swingAmplitude
-				pitch = reach * forwardFrac
-				roll = reach * strafeFrac
-
-				-- Lift the foot during this leg's forward-swing half (when it is
-				-- moving in the travel direction); the other leg stays planted.
-				local swingPhase = math.cos(self.phase) * sideSign
-				lift = math.max(0, swingPhase) * CONFIG.FootLift * math.clamp(speedFactor, 0, 1)
+		elseif travelAxis then
+			local sideSign = (limb.side == "right") and 1 or -1
+			local swing = math.sin(self.phase) * sideSign
+			local target
+			if limb.role == "leg" then
+				-- Slight lead toward the travel direction for a natural stride.
+				target = (swing + CONFIG.LegTravelBias) * swingAmplitude
+			else
+				-- Arms swing opposite to the leg on the same side.
+				target = -swing * swingAmplitude
 			end
+			limb.current = ease(limb.current, target, dt)
 
-			limb.currentPitch = ease(limb.currentPitch, pitch, dt)
-			limb.currentRoll = ease(limb.currentRoll, roll, dt)
-			limb.currentLift = ease(limb.currentLift, lift, dt)
+			-- Pivot legs about the body's centerline (x = 0) so a sideways step
+			-- swings the leg under the body instead of splaying from the hip.
+			-- Arms pivot at the shoulder, which already looks natural.
+			local pivot = (limb.role == "leg")
+				and Vector3.new(0, limb.basePos.Y, limb.basePos.Z)
+				or limb.basePos
 
-			-- Raise the joint pivot (foot lift) then swing about it, preserving
-			-- the rest orientation baked into the default C0.
-			limb.motor.C0 = CFrame.new(limb.basePos + Vector3.new(0, limb.currentLift, 0))
-				* CFrame.Angles(limb.currentPitch, 0, limb.currentRoll)
+			local rotation = CFrame.fromAxisAngle(travelAxis, limb.current)
+			limb.motor.C0 = CFrame.new(pivot)
+				* rotation
+				* CFrame.new(-pivot)
+				* limb.baseC0
+		else
+			-- Idle: settle back to the rest pose.
+			limb.current = ease(limb.current, 0, dt)
+			limb.motor.C0 = CFrame.new(limb.basePos)
+				* CFrame.Angles(limb.current, 0, 0)
 				* limb.baseRot
 		end
 	end
@@ -287,10 +280,7 @@ end
 function ProceduralAnimator:reset()
 	for _, limb in self.limbs do
 		limb.current = 0
-		limb.currentPitch = 0
-		limb.currentRoll = 0
-		limb.currentLift = 0
-		limb.motor.C0 = CFrame.new(limb.basePos) * limb.baseRot
+		limb.motor.C0 = limb.baseC0
 	end
 	if self.rootMotor and self.rootBaseC0 then
 		self.rootBob = 0

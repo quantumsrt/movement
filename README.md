@@ -26,12 +26,14 @@ already started). The rig is then ours to pose.
 
 ### What it animates
 
-- **Walk / run** — arms swing opposite to the same-side leg. Legs step along
-  the **direction of travel** (forward, back, sideways, or diagonal), biased so
-  they reach further the way you're moving, and each foot **lifts off the floor**
-  during its forward swing and plants back down like a real step. Amplitude
-  **and** cadence scale with the character's actual horizontal speed, so walking
-  and sprinting differ automatically.
+- **Walk / run** — arms and legs swing together as pendulums in the vertical
+  plane that contains the **direction of travel**, so the whole body steps the
+  way you're actually moving (forward, back, sideways, or any diagonal). Arms
+  swing opposite the same-side leg; legs lead slightly toward the travel
+  direction for a natural stride. Sideways steps pivot the legs about the body's
+  centerline (not the hip) so they swing under the body instead of splaying out.
+  Amplitude **and** cadence scale with the character's actual horizontal speed,
+  so walking and sprinting differ automatically.
 - **Torso** — a vertical bob synced to the stride (two dips per cycle) plus a
   directional lean: the torso tilts *into* the direction of travel — forward
   when moving forward, back when reversing, left/right when strafing, and
@@ -77,8 +79,7 @@ Open `ProceduralAnimator.lua` and adjust the `CONFIG` table:
 | `ReferenceSpeed` | WalkSpeed that maps to a full-amplitude stride. |
 | `Cadence` | How fast the stride cycles relative to speed. |
 | `MaxSwing` | Peak arm/leg swing angle. |
-| `LegTravelBias` | How far steps reach toward the travel direction. |
-| `FootLift` | How high the foot lifts off the floor mid-step (studs). |
+| `LegTravelBias` | How far steps lead toward the travel direction. |
 | `BobAmplitude` / `MaxLean` | Torso bob height and max directional lean angle. |
 | `IdleBobAmplitude` / `IdleSpeed` | Idle breathing depth and rate. |
 | `AirArmAngle` / `AirLegAngle` | In-air pose. |
